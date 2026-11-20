@@ -30,15 +30,6 @@
   button.start.active{background:#B91C1C}
   button.start:disabled{background:#CBD5E1;color:#334155;cursor:not-allowed}
 
-  /* Login screen */
-  #loginScreen{position:fixed;inset:0;background:#F1F4F8;display:flex;align-items:center;justify-content:center;z-index:50}
-  #loginBox{background:#fff;border:1px solid #DDE3EA;border-radius:12px;padding:32px;width:300px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
-  #loginBox h2{margin:0 0 16px;font-size:18px}
-  #loginBox input{width:100%;box-sizing:border-box;margin-bottom:12px;padding:10px;border:1px solid #CBD5E1;border-radius:6px;font-size:14px}
-  #loginBox button{width:100%;padding:10px;border:0;border-radius:6px;background:#1D4ED8;color:#fff;font-weight:600;cursor:pointer}
-  #loginError{color:#B91C1C;font-size:13px;margin-bottom:8px;min-height:16px}
-
-  /* Fullscreen viewer modal */
   #modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:40;flex-direction:column}
   #modal.open{display:flex}
   #modal img{max-width:92vw;max-height:80vh;border-radius:8px}
@@ -47,16 +38,6 @@
 </style>
 </head>
 <body>
-
-<div id="loginScreen">
-  <div id="loginBox">
-    <h2>Admin Login</h2>
-    <div id="loginError"></div>
-    <input id="loginUser" placeholder="Username" autocomplete="username">
-    <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password">
-    <button id="loginBtn">Sign in</button>
-  </div>
-</div>
 
 <div id="modal">
   <button class="closeBtn" id="closeModal">&times;</button>
@@ -78,37 +59,12 @@
 </div>
 
 <script>
-const loginScreen = document.getElementById("loginScreen");
-const loginBtn = document.getElementById("loginBtn");
-const loginError = document.getElementById("loginError");
 const modal = document.getElementById("modal");
 const modalImg = document.getElementById("modalImg");
 const modalTitle = document.getElementById("modalTitle");
 const grid = document.getElementById("grid");
 const connEl = document.getElementById("conn");
 const employees = new Map();
-
-loginBtn.onclick = async () => {
-  const username = document.getElementById("loginUser").value;
-  const password = document.getElementById("loginPass").value;
-  loginError.textContent = "";
-  try {
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
-    });
-    const data = await res.json();
-    if (data.ok) {
-      loginScreen.style.display = "none";
-      connect();
-    } else {
-      loginError.textContent = data.error || "Login failed";
-    }
-  } catch (e) {
-    loginError.textContent = "Could not reach server";
-  }
-};
 
 document.getElementById("closeModal").onclick = () => modal.classList.remove("open");
 modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("open"); };
@@ -163,13 +119,7 @@ function connect() {
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => { connEl.textContent = "Connected"; };
-  ws.onclose = (ev) => {
-    if (ev.code === 4401) {
-      connEl.textContent = "";
-      loginScreen.style.display = "flex";
-      loginError.textContent = "Session expired, please sign in again";
-      return;
-    }
+  ws.onclose = () => {
     connEl.textContent = "Disconnected — retrying…";
     setTimeout(connect, 3000);
   };
@@ -207,18 +157,8 @@ function connect() {
     }
   };
 }
-};
-}
 
-loginScreen.style.display = "none";
 connect();
 </script>
 </body>
 </html>
-git add .
-git commit -m "remove login"
-git push
-</script>
-</body>
-</html>
-
