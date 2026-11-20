@@ -4,19 +4,21 @@ Live Screen Monitoring - Backend Server
 Run: pip install -r requirements.txt
      uvicorn main:app --host 0.0.0.0 --port 8000
 
-Login: set ADMIN_USERNAME and ADMIN_PASSWORD as environment variables
-on your host (Railway > Variables tab). Defaults to admin / changeme123
-if not set - CHANGE THIS before real use.
+Endpoints:
+  WS   /ws/agent/{employee_id}      <- agent (exe) connects here, sends binary JPEG frames
+  WS   /ws/admin                    <- admin panel (browser) connects here, receives live frames
+  GET  /api/employees               -> list of employees + online/streaming status
+  POST /api/employees/{id}/start    -> tell that agent to start streaming
+  POST /api/employees/{id}/stop     -> tell that agent to stop streaming
+  GET  /api/health                  -> health check
 """
 
 import asyncio
 import json
-import os
-import secrets
 import time
 from typing import Dict, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,12 +32,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")
-valid_sessions: Set[str] = set()
-
 # ---------------------------------------------------------------------------
-# In-memory state
+# In-memory state (swap for Redis/Postgres once you move past MVP)
 # ---------------------------------------------------------------------------
 
 class Employee:
@@ -79,33 +77,6 @@ def _frame_envelope(employee_id: str, jpeg_bytes: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Login
-# ---------------------------------------------------------------------------
-
-@app.post("/api/login")
-async def login(request: Request):
-    form = await request.form()
-    username = form.get("username", "")
-    password = form.get("password", "")
-    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        token = secrets.token_hex(16)
-        valid_sessions.add(token)
-        resp = JSONResponse({"ok": True})
-        resp.set_cookie("admin_token", token, httponly=True, samesite="lax", max_age=60 * 60 * 12)
-        return resp
-    return JSONResponse({"ok": False, "error": "Invalid username or password"}, status_code=401)
-
-
-@app.post("/api/logout")
-async def logout(request: Request):
-    token = request.cookies.get("admin_token")
-    valid_sessions.discard(token)
-    resp = JSONResponse({"ok": True})
-    resp.delete_cookie("admin_token")
-    return resp
-
-
-# ---------------------------------------------------------------------------
 # Agent connection (the .exe running on an employee's PC)
 # ---------------------------------------------------------------------------
 
@@ -115,6 +86,8 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
     emp = get_or_create_employee(employee_id)
     emp.agent_ws = websocket
     emp.last_seen = time.time()
+
+    await broadcast_to_admins({"type": "status", "id": employee_id, "online": True})
 
     try:
         while True:
@@ -133,13 +106,9 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
                 if data.get("type") == "hello":
                     emp.name = data.get("name", emp.name)
                     emp.role = data.get("role", emp.role)
-                    # Auto-start streaming as soon as the agent connects -
-                    # no need for the admin to click "Start" manually.
-                    emp.streaming = True
-                    await websocket.send_text(json.dumps({"type": "start"}))
                     await broadcast_to_admins({
                         "type": "status", "id": employee_id, "online": True,
-                        "name": emp.name, "role": emp.role, "streaming": True,
+                        "name": emp.name, "role": emp.role,
                     })
 
     except WebSocketDisconnect:
@@ -151,16 +120,11 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Admin panel connection (requires login)
+# Admin panel connection (the browser UI)
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws/admin")
 async def admin_socket(websocket: WebSocket):
-    token = websocket.cookies.get("admin_token")
-    if not token or token not in valid_sessions:
-        await websocket.close(code=4401)
-        return
-
     await websocket.accept()
     admin_connections.add(websocket)
 
@@ -199,6 +163,10 @@ async def _handle_admin_command(data: dict):
         await emp.agent_ws.send_text(json.dumps({"type": "stop"}))
 
 
+# ---------------------------------------------------------------------------
+# Plain REST, in case your admin UI wants to poll instead of websocket
+# ---------------------------------------------------------------------------
+
 @app.get("/api/employees")
 async def list_employees():
     return JSONResponse([
@@ -211,9 +179,23 @@ async def list_employees():
     ])
 
 
+@app.post("/api/employees/{employee_id}/start")
+async def start_employee(employee_id: str):
+    await _handle_admin_command({"type": "start", "id": employee_id})
+    return {"ok": True}
+
+
+@app.post("/api/employees/{employee_id}/stop")
+async def stop_employee(employee_id: str):
+    await _handle_admin_command({"type": "stop", "id": employee_id})
+    return {"ok": True}
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "employees_known": len(employees)}
 
 
+# Serves ./static/index.html at "/" - the admin panel UI.
+# Mounted LAST so it never shadows the /api and /ws routes above.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
