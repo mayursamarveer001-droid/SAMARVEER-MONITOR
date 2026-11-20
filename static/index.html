@@ -18,4 +18,113 @@
   .scr{height:150px;position:relative;margin:10px 10px 0;border-radius:6px;overflow:hidden;background:#111;display:flex;align-items:center;justify-content:center}
   .scr img{width:100%;height:100%;object-fit:cover;display:block}
   .scr .placeholder{color:#94A3B8;font-size:12px}
-  .badge{position:absolute;top:8px;left:8px;font-size:11px;font-weight:600;p
+  .badge{position:absolute;top:8px;left:8px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px}
+  .live{background:#14532D;color:#fff}
+  .off{background:#64748B;color:#fff}
+  .who{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #E8ECF1}
+  .av{width:34px;height:34px;border-radius:50%;background:#DBEAFE;color:#1E3A8A;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+  .nm{flex:1;min-width:0}
+  .nm b{font-size:13px;font-weight:600;display:block}
+  .nm small{font-size:11px;color:#475569}
+  button.start{background:#15803D;color:#fff;border:0;border-radius:6px;font:600 13px Inter,sans-serif;padding:0 16px;min-height:40px;cursor:pointer}
+  button.start.active{background:#B91C1C}
+  button.start:disabled{background:#CBD5E1;color:#334155;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <div class="logo">Your Company</div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <h1>Live Screens</h1>
+      <span id="conn" style="font-size:13px;color:#64748B">Connecting…</span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </main>
+</div>
+
+<script>
+const WS_HOST = location.host;
+const WS_PROTOCOL = location.protocol === "https:" ? "wss" : "ws";
+const ADMIN_WS_URL = `${WS_PROTOCOL}://${WS_HOST}/ws/admin`;
+
+const grid = document.getElementById("grid");
+const connEl = document.getElementById("conn");
+const employees = new Map();
+
+function initials(name) {
+  return name.split(" ").filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+}
+
+function render() {
+  grid.innerHTML = "";
+  for (const [id, e] of employees) {
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    tile.innerHTML = `
+      <div class="scr">
+        ${e.imgUrl ? `<img src="${e.imgUrl}">` : `<span class="placeholder">${e.online ? "Waiting for frame…" : "No signal"}</span>`}
+        <span class="badge ${e.online ? "live" : "off"}">${e.online ? (e.streaming ? "Live" : "Idle") : "Offline"}</span>
+      </div>
+      <div class="who">
+        <span class="av">${initials(e.name || id)}</span>
+        <div class="nm"><b>${e.name || id}</b><small>${e.role || ""}</small></div>
+        <button class="start ${e.streaming ? "active" : ""}" data-id="${id}" ${e.online ? "" : "disabled"}>
+          ${e.streaming ? "Stop" : "Start"}
+        </button>
+      </div>`;
+    grid.appendChild(tile);
+  }
+  grid.querySelectorAll("button.start").forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const e = employees.get(id);
+      ws.send(JSON.stringify({ type: e.streaming ? "stop" : "start", id }));
+    };
+  });
+}
+
+let ws;
+function connect() {
+  ws = new WebSocket(ADMIN_WS_URL);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => { connEl.textContent = "Connected"; };
+  ws.onclose = () => { connEl.textContent = "Disconnected — retrying…"; setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      const data = JSON.parse(ev.data);
+      if (data.type === "snapshot") {
+        data.employees.forEach(e => employees.set(e.id, { ...e, imgUrl: null }));
+        render();
+      } else if (data.type === "status") {
+        const prev = employees.get(data.id) || {};
+        employees.set(data.id, {
+          ...prev, id: data.id,
+          name: data.name ?? prev.name, role: data.role ?? prev.role,
+          online: data.online, streaming: data.online ? prev.streaming : false,
+        });
+        render();
+      }
+    } else {
+      const bytes = new Uint8Array(ev.data);
+      const nl = bytes.indexOf(10);
+      const id = new TextDecoder().decode(bytes.slice(0, nl));
+      const jpeg = bytes.slice(nl + 1);
+      const blob = new Blob([jpeg], { type: "image/jpeg" });
+      const url = URL.createObjectURL(blob);
+      const prev = employees.get(id) || {};
+      if (prev.imgUrl) URL.revokeObjectURL(prev.imgUrl);
+      employees.set(id, { ...prev, id, imgUrl: url, online: true, streaming: true });
+      render();
+    }
+  };
+}
+connect();
+</script>
+</body>
+</html>
