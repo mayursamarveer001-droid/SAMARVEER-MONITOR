@@ -71,11 +71,6 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
     emp.agent_ws = websocket
     emp.last_seen = time.time()
 
-    await broadcast_to_admins({
-        "type": "status", "id": employee_id, "online": True,
-        "name": emp.name, "role": emp.role, "streaming": emp.streaming,
-    })
-
     try:
         while True:
             message = await websocket.receive()
@@ -91,15 +86,19 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
                 except json.JSONDecodeError:
                     continue
                 if data.get("type") == "hello":
-                    # Only use the name/role the agent sends if the admin
-                    # hasn't already set a custom name for this employee.
                     if not emp.name or emp.name == emp.id:
                         emp.name = data.get("name", emp.name)
                     if not emp.role:
                         emp.role = data.get("role", emp.role)
+
+                    # Auto-start streaming as soon as the agent connects -
+                    # no need for the admin to click "Start" manually.
+                    emp.streaming = True
+                    await websocket.send_text(json.dumps({"type": "start"}))
+
                     await broadcast_to_admins({
                         "type": "status", "id": employee_id, "online": True,
-                        "name": emp.name, "role": emp.role, "streaming": emp.streaming,
+                        "name": emp.name, "role": emp.role, "streaming": True,
                     })
 
     except WebSocketDisconnect:
