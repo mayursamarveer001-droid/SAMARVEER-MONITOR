@@ -25,6 +25,7 @@
   .av{width:34px;height:34px;border-radius:50%;background:#DBEAFE;color:#1E3A8A;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
   .nm{flex:1;min-width:0}
   .nm b{font-size:13px;font-weight:600;display:block;cursor:pointer}
+  .nm b:hover{text-decoration:underline dashed #94A3B8}
   .nm small{font-size:11px;color:#475569}
   .nm input{width:100%;box-sizing:border-box;font-size:13px;padding:3px 6px;border:1px solid #93C5FD;border-radius:4px;margin-bottom:2px}
   button.start{background:#15803D;color:#fff;border:0;border-radius:6px;font:600 13px Inter,sans-serif;padding:0 16px;min-height:40px;cursor:pointer;flex:none}
@@ -67,13 +68,17 @@ const modalTitle = document.getElementById("modalTitle");
 const grid = document.getElementById("grid");
 const connEl = document.getElementById("conn");
 const employees = new Map();
-let editingId = null;
+let editingId = null;   // jis screen ka naam edit ho raha hai
 
 document.getElementById("closeModal").onclick = () => modal.classList.remove("open");
 modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("open"); };
 
 function initials(name) {
   return name.split(" ").filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function openModal(e) {
@@ -83,16 +88,47 @@ function openModal(e) {
   modal.classList.add("open");
 }
 
+// ---------- Rename ----------
+function startEdit(id) {
+  editingId = id;
+  draw();
+  const input = document.getElementById("nameInput");
+  if (input) { input.focus(); input.select(); }
+}
+
+function commitRename(id, newName) {
+  newName = (newName || "").trim();
+  if (newName) {
+    ws.send(JSON.stringify({ type: "rename", id, name: newName }));
+    const e = employees.get(id);
+    if (e) e.name = newName;
+  }
+  editingId = null;
+  draw();
+}
+
+function cancelEdit() {
+  editingId = null;
+  draw();
+}
+
+// ---------- Rendering ----------
+// render(): normal updates. Edit chal raha ho to grid ko chhedta nahi.
 function render() {
+  if (editingId) return;
+  draw();
+}
+
+function draw() {
   grid.innerHTML = "";
   for (const [id, e] of employees) {
     const tile = document.createElement("div");
     tile.className = "tile";
 
     const nameBlock = (id === editingId)
-      ? `<input id="nameInput" value="${(e.name || "").replace(/"/g, '&quot;')}">
+      ? `<input id="nameInput" value="${esc(e.name || id)}">
          <button class="saveName" data-id="${id}">Save</button>`
-      : `<b data-id="${id}" class="editName">${e.name || id}</b><small>${e.role || ""}</small>`;
+      : `<b data-id="${id}" class="editName" title="Click to rename">${esc(e.name || id)}</b><small>${esc(e.role || "")}</small>`;
 
     tile.innerHTML = `
       <div class="scr" data-id="${id}">
@@ -100,7 +136,7 @@ function render() {
         <span class="badge ${e.online ? "live" : "off"}">${e.online ? (e.streaming ? "Live" : "Idle") : "Offline"}</span>
       </div>
       <div class="who">
-        <span class="av">${initials(e.name || id)}</span>
+        <span class="av">${esc(initials(e.name || id))}</span>
         <div class="nm">${nameBlock}</div>
         <button class="start ${e.streaming ? "active" : ""}" data-id="${id}" ${e.online ? "" : "disabled"}>
           ${e.streaming ? "Stop" : "Start"}
@@ -112,6 +148,7 @@ function render() {
   grid.querySelectorAll(".scr").forEach(div => {
     div.onclick = () => openModal(employees.get(div.dataset.id));
   });
+
   grid.querySelectorAll("button.start").forEach(btn => {
     btn.onclick = (ev) => {
       ev.stopPropagation();
@@ -120,43 +157,32 @@ function render() {
       ws.send(JSON.stringify({ type: e.streaming ? "stop" : "start", id }));
     };
   });
+
   grid.querySelectorAll(".editName").forEach(el => {
     el.onclick = (ev) => {
       ev.stopPropagation();
-      editingId = el.dataset.id;
-      render();
-      const input = document.getElementById("nameInput");
-      if (input) { input.focus(); input.select(); }
+      startEdit(el.dataset.id);
     };
   });
+
   grid.querySelectorAll("button.saveName").forEach(btn => {
     btn.onclick = (ev) => {
       ev.stopPropagation();
-      const id = btn.dataset.id;
       const input = document.getElementById("nameInput");
-      const newName = input ? input.value.trim() : "";
-      if (newName) {
-        ws.send(JSON.stringify({ type: "rename", id, name: newName }));
-      }
-      editingId = null;
+      commitRename(btn.dataset.id, input ? input.value : "");
     };
   });
+
   const input = document.getElementById("nameInput");
   if (input) {
     input.onkeydown = (ev) => {
-      if (ev.key === "Enter") {
-        const id = editingId;
-        const newName = input.value.trim();
-        if (newName) ws.send(JSON.stringify({ type: "rename", id, name: newName }));
-        editingId = null;
-      } else if (ev.key === "Escape") {
-        editingId = null;
-        render();
-      }
+      if (ev.key === "Enter") commitRename(editingId, input.value);
+      else if (ev.key === "Escape") cancelEdit();
     };
   }
 }
 
+// ---------- WebSocket ----------
 let ws;
 function connect() {
   const WS_PROTOCOL = location.protocol === "https:" ? "wss" : "ws";
@@ -180,7 +206,7 @@ function connect() {
           name: data.name ?? prev.name, role: data.role ?? prev.role,
           online: data.online, streaming: data.online ? (data.streaming ?? prev.streaming) : false,
         });
-        if (data.id !== editingId) render();
+        render();   // edit ke dauran apne aap skip ho jata hai
       }
     } else {
       const bytes = new Uint8Array(ev.data);
@@ -190,9 +216,18 @@ function connect() {
       const blob = new Blob([jpeg], { type: "image/jpeg" });
       const url = URL.createObjectURL(blob);
       const prev = employees.get(id) || {};
-      if (prev.imgUrl) URL.revokeObjectURL(prev.imgUrl);
+      const oldUrl = prev.imgUrl;
       employees.set(id, { ...prev, id, imgUrl: url, online: true, streaming: true });
-      render();
+
+      if (editingId) {
+        // edit chal raha hai: sirf image badlo, input ko mat chhedo
+        const img = grid.querySelector(`.scr[data-id="${id}"] img`);
+        if (img) img.src = url;
+      } else {
+        render();
+      }
+      if (oldUrl) setTimeout(() => URL.revokeObjectURL(oldUrl), 1000);
+
       if (modal.classList.contains("open") && modalTitle.textContent === (employees.get(id).name || id)) {
         modalImg.src = url;
       }
