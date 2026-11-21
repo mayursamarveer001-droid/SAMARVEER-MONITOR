@@ -97,3 +97,109 @@ function render() {
     tile.innerHTML = `
       <div class="scr" data-id="${id}">
         ${e.imgUrl ? `<img src="${e.imgUrl}">` : `<span class="placeholder">${e.online ? "Waiting for frame…" : "No signal"}</span>`}
+        <span class="badge ${e.online ? "live" : "off"}">${e.online ? (e.streaming ? "Live" : "Idle") : "Offline"}</span>
+      </div>
+      <div class="who">
+        <span class="av">${initials(e.name || id)}</span>
+        <div class="nm">${nameBlock}</div>
+        <button class="start ${e.streaming ? "active" : ""}" data-id="${id}" ${e.online ? "" : "disabled"}>
+          ${e.streaming ? "Stop" : "Start"}
+        </button>
+      </div>`;
+    grid.appendChild(tile);
+  }
+
+  grid.querySelectorAll(".scr").forEach(div => {
+    div.onclick = () => openModal(employees.get(div.dataset.id));
+  });
+  grid.querySelectorAll("button.start").forEach(btn => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.id;
+      const e = employees.get(id);
+      ws.send(JSON.stringify({ type: e.streaming ? "stop" : "start", id }));
+    };
+  });
+  grid.querySelectorAll(".editName").forEach(el => {
+    el.onclick = (ev) => {
+      ev.stopPropagation();
+      editingId = el.dataset.id;
+      render();
+      const input = document.getElementById("nameInput");
+      if (input) { input.focus(); input.select(); }
+    };
+  });
+  grid.querySelectorAll("button.saveName").forEach(btn => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.id;
+      const input = document.getElementById("nameInput");
+      const newName = input ? input.value.trim() : "";
+      if (newName) {
+        ws.send(JSON.stringify({ type: "rename", id, name: newName }));
+      }
+      editingId = null;
+    };
+  });
+  const input = document.getElementById("nameInput");
+  if (input) {
+    input.onkeydown = (ev) => {
+      if (ev.key === "Enter") {
+        const id = editingId;
+        const newName = input.value.trim();
+        if (newName) ws.send(JSON.stringify({ type: "rename", id, name: newName }));
+        editingId = null;
+      } else if (ev.key === "Escape") {
+        editingId = null;
+        render();
+      }
+    };
+  }
+}
+
+let ws;
+function connect() {
+  const WS_PROTOCOL = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${WS_PROTOCOL}://${location.host}/ws/admin`);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => { connEl.textContent = "Connected"; };
+  ws.onclose = () => { connEl.textContent = "Disconnected — retrying…"; setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      const data = JSON.parse(ev.data);
+      if (data.type === "snapshot") {
+        data.employees.forEach(e => employees.set(e.id, { ...e, imgUrl: null }));
+        render();
+      } else if (data.type === "status") {
+        const prev = employees.get(data.id) || {};
+        employees.set(data.id, {
+          ...prev, id: data.id,
+          name: data.name ?? prev.name, role: data.role ?? prev.role,
+          online: data.online, streaming: data.online ? (data.streaming ?? prev.streaming) : false,
+        });
+        if (data.id !== editingId) render();
+      }
+    } else {
+      const bytes = new Uint8Array(ev.data);
+      const nl = bytes.indexOf(10);
+      const id = new TextDecoder().decode(bytes.slice(0, nl));
+      const jpeg = bytes.slice(nl + 1);
+      const blob = new Blob([jpeg], { type: "image/jpeg" });
+      const url = URL.createObjectURL(blob);
+      const prev = employees.get(id) || {};
+      if (prev.imgUrl) URL.revokeObjectURL(prev.imgUrl);
+      employees.set(id, { ...prev, id, imgUrl: url, online: true, streaming: true });
+      render();
+      if (modal.classList.contains("open") && modalTitle.textContent === (employees.get(id).name || id)) {
+        modalImg.src = url;
+      }
+    }
+  };
+}
+connect();
+</script>
+</body>
+</html>
