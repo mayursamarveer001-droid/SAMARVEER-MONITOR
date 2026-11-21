@@ -24,11 +24,13 @@
   .who{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid #E8ECF1}
   .av{width:34px;height:34px;border-radius:50%;background:#DBEAFE;color:#1E3A8A;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
   .nm{flex:1;min-width:0}
-  .nm b{font-size:13px;font-weight:600;display:block}
+  .nm b{font-size:13px;font-weight:600;display:block;cursor:pointer}
   .nm small{font-size:11px;color:#475569}
-  button.start{background:#15803D;color:#fff;border:0;border-radius:6px;font:600 13px Inter,sans-serif;padding:0 16px;min-height:40px;cursor:pointer}
+  .nm input{width:100%;box-sizing:border-box;font-size:13px;padding:3px 6px;border:1px solid #93C5FD;border-radius:4px;margin-bottom:2px}
+  button.start{background:#15803D;color:#fff;border:0;border-radius:6px;font:600 13px Inter,sans-serif;padding:0 16px;min-height:40px;cursor:pointer;flex:none}
   button.start.active{background:#B91C1C}
   button.start:disabled{background:#CBD5E1;color:#334155;cursor:not-allowed}
+  button.saveName{background:#1D4ED8;color:#fff;border:0;border-radius:4px;font-size:11px;padding:3px 8px;cursor:pointer;margin-top:2px}
 
   #modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:40;flex-direction:column}
   #modal.open{display:flex}
@@ -47,7 +49,7 @@
 
 <div class="wrap">
   <aside>
-    <div class="logo">SAMARVEER AUTO & LUBES</div>
+    <div class="logo">Your Company</div>
   </aside>
   <main>
     <div class="topbar">
@@ -65,6 +67,7 @@ const modalTitle = document.getElementById("modalTitle");
 const grid = document.getElementById("grid");
 const connEl = document.getElementById("conn");
 const employees = new Map();
+let editingId = null;
 
 document.getElementById("closeModal").onclick = () => modal.classList.remove("open");
 modal.onclick = (e) => { if (e.target === modal) modal.classList.remove("open"); };
@@ -85,80 +88,12 @@ function render() {
   for (const [id, e] of employees) {
     const tile = document.createElement("div");
     tile.className = "tile";
+
+    const nameBlock = (id === editingId)
+      ? `<input id="nameInput" value="${(e.name || "").replace(/"/g, '&quot;')}">
+         <button class="saveName" data-id="${id}">Save</button>`
+      : `<b data-id="${id}" class="editName">${e.name || id}</b><small>${e.role || ""}</small>`;
+
     tile.innerHTML = `
       <div class="scr" data-id="${id}">
         ${e.imgUrl ? `<img src="${e.imgUrl}">` : `<span class="placeholder">${e.online ? "Waiting for frame…" : "No signal"}</span>`}
-        <span class="badge ${e.online ? "live" : "off"}">${e.online ? (e.streaming ? "Live" : "Idle") : "Offline"}</span>
-      </div>
-      <div class="who">
-        <span class="av">${initials(e.name || id)}</span>
-        <div class="nm"><b>${e.name || id}</b><small>${e.role || ""}</small></div>
-        <button class="start ${e.streaming ? "active" : ""}" data-id="${id}" ${e.online ? "" : "disabled"}>
-          ${e.streaming ? "Stop" : "Start"}
-        </button>
-      </div>`;
-    grid.appendChild(tile);
-  }
-  grid.querySelectorAll(".scr").forEach(div => {
-    div.onclick = () => openModal(employees.get(div.dataset.id));
-  });
-  grid.querySelectorAll("button.start").forEach(btn => {
-    btn.onclick = (ev) => {
-      ev.stopPropagation();
-      const id = btn.dataset.id;
-      const e = employees.get(id);
-      ws.send(JSON.stringify({ type: e.streaming ? "stop" : "start", id }));
-    };
-  });
-}
-
-let ws;
-function connect() {
-  const WS_PROTOCOL = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${WS_PROTOCOL}://${location.host}/ws/admin`);
-  ws.binaryType = "arraybuffer";
-
-  ws.onopen = () => { connEl.textContent = "Connected"; };
-  ws.onclose = () => {
-    connEl.textContent = "Disconnected — retrying…";
-    setTimeout(connect, 3000);
-  };
-  ws.onerror = () => ws.close();
-
-  ws.onmessage = (ev) => {
-    if (typeof ev.data === "string") {
-      const data = JSON.parse(ev.data);
-      if (data.type === "snapshot") {
-        data.employees.forEach(e => employees.set(e.id, { ...e, imgUrl: null }));
-        render();
-      } else if (data.type === "status") {
-        const prev = employees.get(data.id) || {};
-        employees.set(data.id, {
-          ...prev, id: data.id,
-          name: data.name ?? prev.name, role: data.role ?? prev.role,
-          online: data.online, streaming: data.online ? (data.streaming ?? prev.streaming) : false,
-        });
-        render();
-      }
-    } else {
-      const bytes = new Uint8Array(ev.data);
-      const nl = bytes.indexOf(10);
-      const id = new TextDecoder().decode(bytes.slice(0, nl));
-      const jpeg = bytes.slice(nl + 1);
-      const blob = new Blob([jpeg], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      const prev = employees.get(id) || {};
-      if (prev.imgUrl) URL.revokeObjectURL(prev.imgUrl);
-      employees.set(id, { ...prev, id, imgUrl: url, online: true, streaming: true });
-      render();
-      if (modal.classList.contains("open") && modalTitle.textContent === (employees.get(id).name || id)) {
-        modalImg.src = url;
-      }
-    }
-  };
-}
-
-connect();
-</script>
-</body>
-</html>
