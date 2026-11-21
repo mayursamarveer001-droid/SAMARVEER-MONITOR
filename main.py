@@ -3,17 +3,8 @@ Live Screen Monitoring - Backend Server
 ----------------------------------------
 Run: pip install -r requirements.txt
      uvicorn main:app --host 0.0.0.0 --port 8000
-
-Endpoints:
-  WS   /ws/agent/{employee_id}      <- agent (exe) connects here, sends binary JPEG frames
-  WS   /ws/admin                    <- admin panel (browser) connects here, receives live frames
-  GET  /api/employees               -> list of employees + online/streaming status
-  POST /api/employees/{id}/start    -> tell that agent to start streaming
-  POST /api/employees/{id}/stop     -> tell that agent to stop streaming
-  GET  /api/health                  -> health check
 """
 
-import asyncio
 import json
 import time
 from typing import Dict, Set
@@ -32,9 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# In-memory state (swap for Redis/Postgres once you move past MVP)
-# ---------------------------------------------------------------------------
 
 class Employee:
     def __init__(self, employee_id: str, name: str = "", role: str = ""):
@@ -76,10 +64,6 @@ def _frame_envelope(employee_id: str, jpeg_bytes: bytes) -> bytes:
     return header + jpeg_bytes
 
 
-# ---------------------------------------------------------------------------
-# Agent connection (the .exe running on an employee's PC)
-# ---------------------------------------------------------------------------
-
 @app.websocket("/ws/agent/{employee_id}")
 async def agent_socket(websocket: WebSocket, employee_id: str):
     await websocket.accept()
@@ -87,7 +71,10 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
     emp.agent_ws = websocket
     emp.last_seen = time.time()
 
-    await broadcast_to_admins({"type": "status", "id": employee_id, "online": True})
+    await broadcast_to_admins({
+        "type": "status", "id": employee_id, "online": True,
+        "name": emp.name, "role": emp.role, "streaming": emp.streaming,
+    })
 
     try:
         while True:
@@ -104,11 +91,15 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
                 except json.JSONDecodeError:
                     continue
                 if data.get("type") == "hello":
-                    emp.name = data.get("name", emp.name)
-                    emp.role = data.get("role", emp.role)
+                    # Only use the name/role the agent sends if the admin
+                    # hasn't already set a custom name for this employee.
+                    if not emp.name or emp.name == emp.id:
+                        emp.name = data.get("name", emp.name)
+                    if not emp.role:
+                        emp.role = data.get("role", emp.role)
                     await broadcast_to_admins({
                         "type": "status", "id": employee_id, "online": True,
-                        "name": emp.name, "role": emp.role,
+                        "name": emp.name, "role": emp.role, "streaming": emp.streaming,
                     })
 
     except WebSocketDisconnect:
@@ -119,83 +110,5 @@ async def agent_socket(websocket: WebSocket, employee_id: str):
         await broadcast_to_admins({"type": "status", "id": employee_id, "online": False})
 
 
-# ---------------------------------------------------------------------------
-# Admin panel connection (the browser UI)
-# ---------------------------------------------------------------------------
-
 @app.websocket("/ws/admin")
-async def admin_socket(websocket: WebSocket):
-    await websocket.accept()
-    admin_connections.add(websocket)
-
-    snapshot = [
-        {"id": e.id, "name": e.name, "role": e.role, "online": e.agent_ws is not None,
-         "streaming": e.streaming}
-        for e in employees.values()
-    ]
-    await websocket.send_text(json.dumps({"type": "snapshot", "employees": snapshot}))
-
-    try:
-        while True:
-            raw = await websocket.receive_text()
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            await _handle_admin_command(data)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        admin_connections.discard(websocket)
-
-
-async def _handle_admin_command(data: dict):
-    cmd = data.get("type")
-    emp_id = data.get("id")
-    emp = employees.get(emp_id)
-    if not emp or not emp.agent_ws:
-        return
-    if cmd == "start":
-        emp.streaming = True
-        await emp.agent_ws.send_text(json.dumps({"type": "start"}))
-    elif cmd == "stop":
-        emp.streaming = False
-        await emp.agent_ws.send_text(json.dumps({"type": "stop"}))
-
-
-# ---------------------------------------------------------------------------
-# Plain REST, in case your admin UI wants to poll instead of websocket
-# ---------------------------------------------------------------------------
-
-@app.get("/api/employees")
-async def list_employees():
-    return JSONResponse([
-        {
-            "id": e.id, "name": e.name, "role": e.role,
-            "online": e.agent_ws is not None, "streaming": e.streaming,
-            "last_seen": e.last_seen,
-        }
-        for e in employees.values()
-    ])
-
-
-@app.post("/api/employees/{employee_id}/start")
-async def start_employee(employee_id: str):
-    await _handle_admin_command({"type": "start", "id": employee_id})
-    return {"ok": True}
-
-
-@app.post("/api/employees/{employee_id}/stop")
-async def stop_employee(employee_id: str):
-    await _handle_admin_command({"type": "stop", "id": employee_id})
-    return {"ok": True}
-
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok", "employees_known": len(employees)}
-
-
-# Serves ./static/index.html at "/" - the admin panel UI.
-# Mounted LAST so it never shadows the /api and /ws routes above.
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+async def
