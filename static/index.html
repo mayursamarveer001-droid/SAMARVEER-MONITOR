@@ -149,6 +149,12 @@
   #pwMsg{font-size:12px;min-height:14px;margin-bottom:6px}
   #pwMsg.err{color:#B91C1C}
   #pwMsg.ok{color:#15803D}
+
+  .pwWrap{position:relative}
+  .pwWrap input{padding-right:38px !important}
+  .pwWrap .eyeBtn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;color:#64748B;font-size:15px;padding:4px;line-height:1}
+  .pwWrap .eyeBtn:hover{color:#334155}
+
 </style>
 </head>
 <body>
@@ -162,7 +168,10 @@
     <h2>Admin Login</h2>
     <div id="loginError"></div>
     <input id="loginUser" placeholder="Username" autocomplete="username">
-    <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="pwWrap">
+      <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password">
+      <button type="button" class="eyeBtn" data-target="loginPass">👁</button>
+    </div>
     <button id="loginBtn">Sign in</button>
   </div>
 </div>
@@ -171,9 +180,18 @@
   <div id="pwBox">
     <h3>Change Password</h3>
     <div id="pwMsg"></div>
-    <input id="pwCurrent" type="password" placeholder="Current password" autocomplete="current-password">
-    <input id="pwNew" type="password" placeholder="New password" autocomplete="new-password">
-    <input id="pwNew2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+    <div class="pwWrap">
+      <input id="pwCurrent" type="password" placeholder="Current password" autocomplete="current-password">
+      <button type="button" class="eyeBtn" data-target="pwCurrent">👁</button>
+    </div>
+    <div class="pwWrap">
+      <input id="pwNew" type="password" placeholder="New password" autocomplete="new-password">
+      <button type="button" class="eyeBtn" data-target="pwNew">👁</button>
+    </div>
+    <div class="pwWrap">
+      <input id="pwNew2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+      <button type="button" class="eyeBtn" data-target="pwNew2">👁</button>
+    </div>
     <div class="pwActs">
       <button class="pwCancel" id="pwCancelBtn" type="button">Cancel</button>
       <button class="pwSave" id="pwSaveBtn" type="button">Save</button>
@@ -690,6 +708,16 @@ function connect() {
 }
 
 setInterval(() => { if (reportOpen) renderReport(); }, 30000);
+
+document.querySelectorAll(".eyeBtn").forEach(btn => {
+  btn.onclick = () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.textContent = show ? "🙈" : "👁";
+  };
+});
 </script>
 </body>
 </html>
