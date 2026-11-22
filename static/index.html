@@ -152,8 +152,10 @@
 
   .pwWrap{position:relative}
   .pwWrap input{padding-right:38px !important}
-  .pwWrap .eyeBtn{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;color:#64748B;font-size:15px;padding:4px;line-height:1}
+  .pwWrap .eyeBtn{all:unset;position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#64748B;font-size:15px;line-height:1;width:auto !important;display:inline-block}
   .pwWrap .eyeBtn:hover{color:#334155}
+
+  .appFooter{text-align:center;font-size:11.5px;color:#94A3B8;padding:18px 0 6px}
 
 </style>
 </head>
@@ -173,6 +175,7 @@
       <button type="button" class="eyeBtn" data-target="loginPass">👁</button>
     </div>
     <button id="loginBtn">Sign in</button>
+    <div class="appFooter">Developed by: Mayur Sachdev</div>
   </div>
 </div>
 
@@ -284,6 +287,8 @@
     <span id="pageInfo"></span>
     <button id="next" type="button">Next →</button>
   </div>
+
+  <div class="appFooter">Developed by: Mayur Sachdev</div>
 </main>
 
 <script>
